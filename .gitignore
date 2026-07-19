@@ -1,0 +1,20 @@
+# Unrelated project folder (kept out of this repo)
+Obada-E-finance/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+app/dist/
+
+# Env / secrets
+.env
+*.env
+
+# Misc
+.DS_Store
+*.log
+
+# Playwright scratch
+.playwright-cli/
