@@ -24,21 +24,17 @@ interface Account {
   id: string
   name: string
 }
-interface Opportunity {
-  id: string
-  name: string
-  amount: number
-  stage: string
-  isClosed: boolean
-  isWon: boolean
+interface StageSlice { stage: string; amount: number }
+interface ContactLite { name: string; title: string | null }
+interface LastInteraction { date: string; source: string }
+interface DetailResult {
+  account: { id: string; name: string }
+  metrics: { totalPipeline: number; openPipeline: number; openCaseCount: number; wonCount: number }
+  stages: StageSlice[]
+  contacts: ContactLite[]
+  lastInteraction: LastInteraction | null
 }
-interface OppsResult {
-  account: Account
-  count: number
-  totalAmount: number
-  openAmount: number
-  opportunities: Opportunity[]
-}
+interface TalkingPoints { points: string[]; source: string }
 interface VoiceResult {
   transcript?: string
   answer: string
@@ -119,20 +115,53 @@ function renderAccounts(): string {
   return `Salesforce\n\n${prepRow}\n${rows}\n${exitRow}\n\nTap: select  Swipe: move`
 }
 
-function renderOpps(data: OppsResult): string {
-  const header =
-    `${data.account.name}\n\n` +
-    `Pipeline: ${money(data.totalAmount)}  (${data.count} opps)\n` +
-    `Open: ${money(data.openAmount)}\n`
-  if (data.count === 0) {
-    return header + '\nNo opportunities.\n\nTap: back  x2: ask by voice'
+function bar(value: number, max: number, width = 10): string {
+  if (max <= 0) return ''
+  const cells = value > 0 ? Math.max(1, Math.round((value / max) * width)) : 0
+  return '█'.repeat(cells)
+}
+
+function daysAgo(dateStr: string): string {
+  const then = new Date(dateStr).getTime()
+  if (Number.isNaN(then)) return dateStr
+  const days = Math.floor((Date.now() - then) / 86400000)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days} days ago`
+}
+
+function renderDetail(d: DetailResult, points?: string[] | 'error'): string {
+  const head =
+    `${d.account.name}\n` +
+    `Pipeline ${money(d.metrics.totalPipeline)} · Open ${money(d.metrics.openPipeline)}\n`
+  let chart: string
+  if (d.stages.length) {
+    const max = Math.max(...d.stages.map((s) => s.amount))
+    chart =
+      '\nOpen by stage\n' +
+      d.stages
+        .slice(0, 4)
+        .map((s) => ` ${s.stage} ${bar(s.amount, max)} ${money(s.amount)}`)
+        .join('\n') +
+      '\n'
+  } else {
+    chart = '\nNo open pipeline\n'
   }
-  const lines = data.opportunities
-    .slice(0, 7)
-    .map((o, i) => `${i + 1}. ${o.name} - ${money(o.amount)} (${o.stage})`)
-    .join('\n')
-  const more = data.count > 7 ? `\n...and ${data.count - 7} more` : ''
-  return `${header}\n${lines}${more}\n\nTap: back  x2: ask by voice`
+  const contacts = d.contacts.length
+    ? '\nMain contacts\n' +
+      d.contacts.map((c) => ` ${c.name}${c.title ? ' — ' + c.title : ''}`).join('\n') +
+      '\n'
+    : '\nNo contacts on file\n'
+  const last = d.lastInteraction
+    ? `Last interaction  ${daysAgo(d.lastInteraction.date)}\n`
+    : 'No recent activity\n'
+  let tp = '\nKey talking points  (analyzing…)\n'
+  if (points === 'error') {
+    tp = '\nKey talking points  (unavailable)\n'
+  } else if (points && points.length) {
+    tp = '\nKey talking points\n' + points.map((p) => ` • ${p}`).join('\n') + '\n'
+  }
+  return `${head}${chart}${contacts}${last}${tp}\nTap: back  x2: ask by voice`
 }
 
 // --- Actions ---------------------------------------------------------------
@@ -170,22 +199,32 @@ async function loadAccounts() {
 async function openSelectedAccount() {
   const account = accounts[selected - 1]
   if (!account) return
+  if (busy) return
   busy = true
+  view = 'detail'
+  let detail: DetailResult
   try {
-    view = 'detail'
-    await setText(`${account.name}\n\nLoading opportunities...`)
-    const data = await fetchJson<OppsResult>(
-      `/accounts/${account.id}/opportunities`,
-    )
-    await setText(renderOpps(data))
-    console.log('APP_OPPS_LOADED', account.name, data.count, Math.round(data.totalAmount))
+    await setText(`${account.name}\n\nLoading...`)
+    detail = await fetchJson<DetailResult>(`/accounts/${account.id}/detail`)
+    await setText(renderDetail(detail))
+    console.log('APP_DETAIL_LOADED', account.name)
   } catch (err) {
     await setText(
-      `${account.name}\n\nError loading opportunities\n\n${(err as Error).message}\n\nTap: back`,
+      `${account.name}\n\nError loading detail\n\n${(err as Error).message}\n\nTap: back`,
     )
-    console.error('APP_OPPS_ERROR', err)
-  } finally {
+    console.error('APP_DETAIL_ERROR', err)
     busy = false
+    return
+  }
+  // Allow tap-back while talking points are generated.
+  busy = false
+  try {
+    const tp = await fetchJson<TalkingPoints>(`/accounts/${account.id}/talking-points`)
+    if (view === 'detail') await setText(renderDetail(detail, tp.points))
+    console.log('APP_TP_LOADED', account.name, tp.source)
+  } catch (err) {
+    if (view === 'detail') await setText(renderDetail(detail, 'error'))
+    console.error('APP_TP_ERROR', err)
   }
 }
 
