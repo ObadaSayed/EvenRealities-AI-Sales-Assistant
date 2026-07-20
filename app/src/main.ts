@@ -56,6 +56,9 @@ let accounts: Account[] = []
 let selected = 0
 let view: View = 'accounts'
 let busy = false
+// Id of the account whose detail view is currently open; used to discard
+// stale async talking-points responses from a previously-opened account.
+let detailAccountId: string | null = null
 
 // Voice capture state.
 let recording = false
@@ -202,6 +205,7 @@ async function openSelectedAccount() {
   if (busy) return
   busy = true
   view = 'detail'
+  detailAccountId = account.id
   let detail: DetailResult
   try {
     await setText(`${account.name}\n\nLoading...`)
@@ -218,12 +222,13 @@ async function openSelectedAccount() {
   }
   // Allow tap-back while talking points are generated.
   busy = false
+  const isCurrent = () => view === 'detail' && detailAccountId === account.id
   try {
     const tp = await fetchJson<TalkingPoints>(`/accounts/${account.id}/talking-points`)
-    if (view === 'detail') await setText(renderDetail(detail, tp.points))
+    if (isCurrent()) await setText(renderDetail(detail, tp.points))
     console.log('APP_TP_LOADED', account.name, tp.source)
   } catch (err) {
-    if (view === 'detail') await setText(renderDetail(detail, 'error'))
+    if (isCurrent()) await setText(renderDetail(detail, 'error'))
     console.error('APP_TP_ERROR', err)
   }
 }
