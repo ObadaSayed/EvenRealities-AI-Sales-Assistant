@@ -176,7 +176,7 @@ function renderDetail(d: DetailResult, points?: string[] | 'error'): string {
   } else if (points && points.length) {
     tp = '\nKey talking points\n' + points.map((p) => ` • ${p}`).join('\n') + '\n'
   }
-  return `${head}${chart}${contacts}${last}${tp}\nTap: back  x2: ask by voice`
+  return `${head}${chart}${contacts}${last}${tp}\nTap: back  x2: start meeting`
 }
 
 function fmtElapsed(ms: number): string {
@@ -329,6 +329,9 @@ async function endMeeting(save: boolean) {
   if (!meetingSessionId) return
   const sessionId = meetingSessionId
   const accountName = meetingAccountName
+  // Clear the session id immediately so a second tap during the async
+  // summarize/save can't re-enter and fire a duplicate /end.
+  meetingSessionId = null
   if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
   recording = false
   try { await bridge.audioControl(false) } catch { /* ignore */ }
