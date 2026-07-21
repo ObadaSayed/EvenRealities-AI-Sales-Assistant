@@ -93,17 +93,25 @@ Tap: end & save   x2: discard
     (arrays joined into bulleted long-text).
   - `writeMeetingNote({ createRecord, record })` → `{ id }`.
 - `routes/meeting.js` — `makeMeetingRouter({ transcribePcm, openaiChat,
-  runQuery, createRecord, store, loadPrepPoints })`:
-  - `POST /meeting/start { accountId, prepId? }` → resolve prep talking points
-    (via `loadPrepPoints`, best-effort), create session, return
+  createRecord, store, loadPrepContext })`:
+  - `POST /meeting/start { accountId }` → `loadPrepContext(accountId)` →
+    create session (seeded with `prepId` + seed cues), return
     `{ sessionId, cues }`.
   - `POST /meeting/:id/chunk { audioBase64 }` → `transcribePcm` → append →
     `composeCues` → return `{ transcript: <delta>, cues }`.
   - `POST /meeting/:id/end` → `composeMeetingSummary` → `writeMeetingNote` →
-    return `{ summary, actionItems, nextSteps, recordId }`.
-- `server.js` — construct one shared `store`, define `loadPrepPoints(accountId,
-  prepId)` (query the most recent `Meeting_Prep__c` for the account and extract
-  its talking points; return `[]` on miss), and mount the router.
+    return `{ summary, actionItems, nextSteps, recordId, saved }`.
+- `server.js` — construct one shared `store`, define
+  `loadPrepContext(accountId)` → `{ prepId, prepPoints }`, where `prepId` is the
+  most recent `Meeting_Prep__c` for the account (SOQL, or `null`) and
+  `prepPoints` are seeded by reusing `gatherAccountData` + `composeTalkingPoints`
+  (the same CRM-derived talking points the detail view shows); returns
+  `{ prepId: null, prepPoints: [] }` on error. Mount the router.
+
+Design note: initial cues are seeded from `composeTalkingPoints` (CRM-derived)
+rather than parsing the narrative `Brief__c`, because the prep record stores a
+free-text brief, not a discrete points list. The `Meeting_Prep__c` lookup is
+still populated when a prep record exists.
 
 ### Salesforce (SFDX metadata)
 
