@@ -49,7 +49,11 @@ interface PrepStatus {
   account?: string
 }
 
-type View = 'accounts' | 'detail' | 'listening' | 'result'
+interface MeetingStart { sessionId: string; cues: string[] }
+interface MeetingChunk { transcript: string; cues: string[] }
+interface MeetingEnd { summary: string; actionItems: string[]; nextSteps: string[]; recordId: string | null; saved: boolean }
+
+type View = 'accounts' | 'detail' | 'listening' | 'result' | 'meeting' | 'meetingSummary'
 
 let bridge: Bridge
 let accounts: Account[] = []
@@ -59,6 +63,14 @@ let busy = false
 // Id of the account whose detail view is currently open; used to discard
 // stale async talking-points responses from a previously-opened account.
 let detailAccountId: string | null = null
+
+let meetingSessionId: string | null = null
+let meetingCues: string[] = []
+let meetingTranscriptTail = ''
+let meetingStartMs = 0
+let meetingAccountName = ''
+let flushTimer: ReturnType<typeof setInterval> | null = null
+const MEETING_FLUSH_MS = 20000
 
 // Voice capture state.
 let recording = false
@@ -167,6 +179,28 @@ function renderDetail(d: DetailResult, points?: string[] | 'error'): string {
   return `${head}${chart}${contacts}${last}${tp}\nTap: back  x2: ask by voice`
 }
 
+function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(s / 60)
+  return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+}
+
+function renderMeeting(o: { accountName: string; elapsedMs: number; cues: string[]; transcriptTail: string }): string {
+  const head = `● REC ${fmtElapsed(o.elapsedMs)}   ${o.accountName}\n`
+  const cues = o.cues.length
+    ? '\nLive cues\n' + o.cues.map((c) => ` • ${c}`).join('\n') + '\n'
+    : '\nLive cues\n (listening…)\n'
+  const tail = o.transcriptTail ? `\n"${o.transcriptTail}"\n` : ''
+  return `${head}${cues}${tail}\nTap: end & save   x2: discard`
+}
+
+function renderMeetingSummary(r: MeetingEnd, accountName: string): string {
+  const ai = r.actionItems.length ? '\nAction items\n' + r.actionItems.map((x) => ` • ${x}`).join('\n') + '\n' : ''
+  const ns = r.nextSteps.length ? '\nNext steps\n' + r.nextSteps.map((x) => ` • ${x}`).join('\n') + '\n' : ''
+  const status = r.saved ? 'Saved to Salesforce ✓' : 'NOT saved — Salesforce write failed'
+  return `Meeting ${r.saved ? 'saved' : 'ended'}  ${accountName}\n\nSummary\n ${r.summary}\n${ai}${ns}\n${status} · Tap: back`
+}
+
 // --- Actions ---------------------------------------------------------------
 
 async function showAccounts() {
@@ -230,6 +264,99 @@ async function openSelectedAccount() {
   } catch (err) {
     if (isCurrent()) await setText(renderDetail(detail, 'error'))
     console.error('APP_TP_ERROR', err)
+  }
+}
+
+async function startMeeting(account: Account) {
+  if (busy || recording) return
+  busy = true
+  try {
+    const s = await postJson<MeetingStart>('/meeting/start', { accountId: account.id })
+    meetingSessionId = s.sessionId
+    meetingCues = s.cues || []
+    meetingTranscriptTail = ''
+    meetingStartMs = Date.now()
+    meetingAccountName = account.name
+    view = 'meeting'
+    recording = true
+    pcmChunks = []
+    await bridge.audioControl(true, AudioInputSource.Glasses)
+    await renderMeetingScreen()
+    flushTimer = setInterval(() => { void flushMeetingChunk() }, MEETING_FLUSH_MS)
+  } catch (err) {
+    await setText(`${account.name}\n\nCould not start meeting\n\n${(err as Error).message}\n\nTap: back`)
+    console.error('APP_MEETING_START_ERROR', err)
+  } finally {
+    busy = false
+  }
+}
+
+async function renderMeetingScreen() {
+  await setText(renderMeeting({
+    accountName: meetingAccountName,
+    elapsedMs: Date.now() - meetingStartMs,
+    cues: meetingCues,
+    transcriptTail: meetingTranscriptTail,
+  }))
+}
+
+function snapshotPcm(): Uint8Array {
+  const total = pcmChunks.reduce((n, c) => n + c.length, 0)
+  const merged = new Uint8Array(total)
+  let offset = 0
+  for (const c of pcmChunks) { merged.set(c, offset); offset += c.length }
+  pcmChunks = []
+  return merged
+}
+
+async function flushMeetingChunk() {
+  if (!meetingSessionId || view !== 'meeting') return
+  const merged = snapshotPcm()
+  try {
+    if (merged.length > 0) {
+      const audioBase64 = uint8ToBase64(merged)
+      const r = await postJson<MeetingChunk>(`/meeting/${meetingSessionId}/chunk`, { audioBase64 })
+      meetingCues = r.cues || meetingCues
+      if (r.transcript) meetingTranscriptTail = r.transcript.slice(-120)
+    }
+  } catch (err) {
+    console.error('APP_MEETING_CHUNK_ERROR', err)
+  }
+  if (view === 'meeting') await renderMeetingScreen()
+}
+
+async function endMeeting(save: boolean) {
+  if (!meetingSessionId) return
+  const sessionId = meetingSessionId
+  const accountName = meetingAccountName
+  if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
+  recording = false
+  try { await bridge.audioControl(false) } catch { /* ignore */ }
+  busy = true
+  try {
+    if (save) {
+      const merged = snapshotPcm()
+      if (merged.length > 0) {
+        try {
+          await postJson<MeetingChunk>(`/meeting/${sessionId}/chunk`, { audioBase64: uint8ToBase64(merged) })
+        } catch { /* best-effort final chunk */ }
+      }
+      await setText(`${accountName}\n\nSummarizing & saving…`)
+      const r = await postJson<MeetingEnd>(`/meeting/${sessionId}/end`, {})
+      view = 'meetingSummary'
+      await setText(renderMeetingSummary(r, accountName))
+    } else {
+      view = 'accounts'
+      meetingSessionId = null
+      await showAccounts()
+    }
+  } catch (err) {
+    view = 'meetingSummary'
+    await setText(`${accountName}\n\nMeeting ended but summary failed\n\n${(err as Error).message}\n\nTap: back`)
+    console.error('APP_MEETING_END_ERROR', err)
+  } finally {
+    meetingSessionId = null
+    busy = false
   }
 }
 
@@ -374,6 +501,8 @@ async function pollPrep(jobId: string, account: string) {
 // --- Gestures --------------------------------------------------------------
 
 async function onSingleTap() {
+  if (view === 'meeting') { await endMeeting(true); return }
+  if (view === 'meetingSummary') { await showAccounts(); return }
   if (view === 'listening') {
     if (captureMode === 'prep') await stopListeningAndPrep()
     else await stopListeningAndSearch()
@@ -394,8 +523,14 @@ async function onSingleTap() {
 }
 
 async function onDoubleTap() {
+  if (view === 'meeting') { await endMeeting(false); return }
   if (view === 'listening') {
     await cancelListening()
+    return
+  }
+  if (view === 'detail') {
+    const account = accounts[selected - 1]
+    if (account) await startMeeting(account)
     return
   }
   await startListening()
