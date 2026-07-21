@@ -11,6 +11,15 @@
         <viewAllRecords>true</viewAllRecords>
         <modifyAllRecords>true</modifyAllRecords>
     </objectPermissions>
+    <objectPermissions>
+        <object>Meeting_Note__c</object>
+        <allowRead>true</allowRead>
+        <allowCreate>true</allowCreate>
+        <allowEdit>true</allowEdit>
+        <allowDelete>true</allowDelete>
+        <viewAllRecords>true</viewAllRecords>
+        <modifyAllRecords>true</modifyAllRecords>
+    </objectPermissions>
     <fieldPermissions>
         <field>Meeting_Prep__c.Account__c</field>
         <readable>true</readable>
@@ -46,15 +55,6 @@
         <readable>true</readable>
         <editable>true</editable>
     </fieldPermissions>
-    <objectPermissions>
-        <object>Meeting_Note__c</object>
-        <allowRead>true</allowRead>
-        <allowCreate>true</allowCreate>
-        <allowEdit>true</allowEdit>
-        <allowDelete>true</allowDelete>
-        <viewAllRecords>true</viewAllRecords>
-        <modifyAllRecords>true</modifyAllRecords>
-    </objectPermissions>
     <fieldPermissions>
         <field>Meeting_Note__c.Account__c</field>
         <readable>true</readable>
