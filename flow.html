@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Meeting Companion — How It Works</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f5f6fa;
+    padding: 40px 32px 60px;
+    color: #1a1a2e;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #1a1a2e;
+    letter-spacing: -0.3px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #888;
+    margin-bottom: 40px;
+  }
+
+  /* ── Lane headers ── */
+  .lanes {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+
+  .lane-header {
+    text-align: center;
+    padding: 12px 8px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    border-radius: 12px 12px 0 0;
+  }
+  .lane-header.user   { background: #e8f4fd; color: #1a6eb5; }
+  .lane-header.ai     { background: #f0ebff; color: #6b3fa0; }
+  .lane-header.sf     { background: #e8f7f0; color: #1a7a4a; }
+
+  .lane-icon { font-size: 24px; display: block; margin-bottom: 4px; }
+
+  /* ── Phase wrapper ── */
+  .phase-block {
+    max-width: 960px;
+    margin: 0 auto 0;
+  }
+
+  .phase-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 28px 0 0;
+    padding: 0 4px;
+  }
+  .phase-label span {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #999;
+  }
+  .phase-label::before,
+  .phase-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #ddd;
+  }
+
+  /* ── Row of three cells ── */
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    position: relative;
+  }
+
+  .cell {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 80px;
+    position: relative;
+  }
+
+  .cell.user-col { background: #f7fbff; border-left: 3px solid #c5dff8; border-right: 1px solid #e8f4fd; }
+  .cell.ai-col   { background: #faf7ff; border-right: 1px solid #f0ebff; }
+  .cell.sf-col   { background: #f5fdf8; border-right: 3px solid #b3e8cb; }
+
+  /* first row of each phase gets top border */
+  .row.phase-first .cell { border-top: 1px solid #e5e5e5; }
+  /* last row in a phase gets bottom border */
+  .row.phase-last .cell  { border-bottom: 1px solid #e5e5e5; }
+
+  /* ── Cards ── */
+  .card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 10px 13px;
+    width: 100%;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    position: relative;
+  }
+  .card-emoji { font-size: 18px; margin-bottom: 4px; display: block; }
+  .card-title { font-size: 13px; font-weight: 700; margin-bottom: 3px; color: #1a1a2e; }
+  .card-desc  { font-size: 12px; color: #666; line-height: 1.45; }
+
+  .card.user-card { border-top: 3px solid #3d9be9; }
+  .card.ai-card   { border-top: 3px solid #8b5cf6; }
+  .card.sf-card   { border-top: 3px solid #22c55e; }
+
+  /* ── Arrows between rows ── */
+  .arrow-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0;
+    height: 28px;
+  }
+  .arrow-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: #bbb;
+  }
+  .arrow-cell.user-col { background: #f7fbff; border-left: 3px solid #c5dff8; border-right: 1px solid #e8f4fd; }
+  .arrow-cell.ai-col   { background: #faf7ff; border-right: 1px solid #f0ebff; }
+  .arrow-cell.sf-col   { background: #f5fdf8; border-right: 3px solid #b3e8cb; }
+
+  /* ── Cross-lane arrows ── */
+  .cross-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 960px;
+    margin: 0 auto;
+    height: 32px;
+    position: relative;
+    background: linear-gradient(to right, #f7fbff 33.3%, #faf7ff 33.3% 66.6%, #f5fdf8 66.6%);
+  }
+  .cross-arrow svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+  .legend {
+    max-width: 960px;
+    margin: 36px auto 0;
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: #666;
+  }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+  }
+</style>
+</head>
+<body>
+
+<h1>Live Meeting Companion — How It Works</h1>
+<p class="subtitle">Even Realities G2 Glasses × Salesforce × AI</p>
+
+<div class="lanes">
+  <div class="lane-header user">
+    <span class="lane-icon">🥽</span>
+    You &amp; Your Glasses
+  </div>
+  <div class="lane-header ai">
+    <span class="lane-icon">🤖</span>
+    AI Behind the Scenes
+  </div>
+  <div class="lane-header sf">
+    <span class="lane-icon">☁️</span>
+    Salesforce
+  </div>
+</div>
+
+<div class="phase-block">
+
+  <!-- PHASE 1: BEFORE THE MEETING -->
+  <div class="phase-label"><span>① Before the meeting</span></div>
+
+  <div class="row phase-first">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">👓</span>
+        <div class="card-title">Open the app on your glasses</div>
+        <div class="card-desc">You see a list of your Salesforce accounts. Tap to open one.</div>
+      </div>
+    </div>
+    <div class="cell ai-col"></div>
+    <div class="cell sf-col">
+      <div class="card sf-card">
+        <span class="card-emoji">📋</span>
+        <div class="card-title">Account data is fetched</div>
+        <div class="card-desc">Pipeline value, open deals, contacts, and last interaction are pulled in real time.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <div class="arrow-cell user-col">↓</div>
+    <div class="arrow-cell ai-col"></div>
+    <div class="arrow-cell sf-col">↓</div>
+  </div>
+
+  <div class="row phase-last">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">📊</span>
+        <div class="card-title">Review account on the glasses</div>
+        <div class="card-desc">Pipeline chart, contacts, and AI-generated talking points appear on the display.</div>
+      </div>
+    </div>
+    <div class="cell ai-col">
+      <div class="card ai-card">
+        <span class="card-emoji">✍️</span>
+        <div class="card-title">Talking points are generated</div>
+        <div class="card-desc">AI reads the account's deals and history, then writes 3–5 focused talking points for you.</div>
+      </div>
+    </div>
+    <div class="cell sf-col"></div>
+  </div>
+
+
+  <!-- PHASE 2: STARTING THE MEETING -->
+  <div class="phase-label"><span>② Starting the meeting</span></div>
+
+  <div class="row phase-first phase-last">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">✌️</span>
+        <div class="card-title">Double-tap to start</div>
+        <div class="card-desc">The display switches to meeting mode. The mic turns on. A timer starts.</div>
+      </div>
+    </div>
+    <div class="cell ai-col">
+      <div class="card ai-card">
+        <span class="card-emoji">🎯</span>
+        <div class="card-title">First cues appear instantly</div>
+        <div class="card-desc">Your 3 best talking points are shown as opening cues — no speech needed yet.</div>
+      </div>
+    </div>
+    <div class="cell sf-col">
+      <div class="card sf-card">
+        <span class="card-emoji">📝</span>
+        <div class="card-title">Prep record is loaded</div>
+        <div class="card-desc">The account's Meeting Prep record is fetched to anchor the AI's suggestions throughout.</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- PHASE 3: DURING THE MEETING -->
+  <div class="phase-label"><span>③ During the meeting  (repeats every ~5 seconds)</span></div>
+
+  <div class="row phase-first">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">🗣️</span>
+        <div class="card-title">You speak naturally</div>
+        <div class="card-desc">Hold the conversation as you normally would. The glasses listen silently in the background.</div>
+      </div>
+    </div>
+    <div class="cell ai-col"></div>
+    <div class="cell sf-col"></div>
+  </div>
+
+  <div class="arrow-row">
+    <div class="arrow-cell user-col">↓</div>
+    <div class="arrow-cell ai-col"></div>
+    <div class="arrow-cell sf-col"></div>
+  </div>
+
+  <div class="row">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">🔄</span>
+        <div class="card-title">Glasses show <em>● REC ↻</em></div>
+        <div class="card-desc">A brief spinner appears while your last few seconds of speech are being processed.</div>
+      </div>
+    </div>
+    <div class="cell ai-col">
+      <div class="card ai-card">
+        <span class="card-emoji">👂</span>
+        <div class="card-title">Speech is transcribed</div>
+        <div class="card-desc">The audio clip is converted to text using OpenAI Whisper — fast, accurate, cloud-based.</div>
+      </div>
+    </div>
+    <div class="cell sf-col"></div>
+  </div>
+
+  <div class="arrow-row">
+    <div class="arrow-cell user-col"></div>
+    <div class="arrow-cell ai-col">↓</div>
+    <div class="arrow-cell sf-col"></div>
+  </div>
+
+  <div class="row phase-last">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">💡</span>
+        <div class="card-title">New cues appear on the display</div>
+        <div class="card-desc">The glasses show 2–3 updated suggestions — specific to what was just said in the room.</div>
+      </div>
+    </div>
+    <div class="cell ai-col">
+      <div class="card ai-card">
+        <span class="card-emoji">🧠</span>
+        <div class="card-title">Cues are generated</div>
+        <div class="card-desc">AI combines what was just said + the full conversation so far + your prep points to write targeted next-step cues.</div>
+      </div>
+    </div>
+    <div class="cell sf-col"></div>
+  </div>
+
+
+  <!-- PHASE 4: ENDING THE MEETING -->
+  <div class="phase-label"><span>④ Ending the meeting</span></div>
+
+  <div class="row phase-first">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">☝️</span>
+        <div class="card-title">Single-tap to end &amp; save</div>
+        <div class="card-desc">The mic turns off. The glasses show <em>"Summarising &amp; saving…"</em></div>
+      </div>
+    </div>
+    <div class="cell ai-col">
+      <div class="card ai-card">
+        <span class="card-emoji">📄</span>
+        <div class="card-title">Summary is written</div>
+        <div class="card-desc">AI reads the full conversation transcript and produces a summary, action items, and next steps.</div>
+      </div>
+    </div>
+    <div class="cell sf-col"></div>
+  </div>
+
+  <div class="arrow-row">
+    <div class="arrow-cell user-col"></div>
+    <div class="arrow-cell ai-col">↓</div>
+    <div class="arrow-cell sf-col"></div>
+  </div>
+
+  <div class="row">
+    <div class="cell user-col"></div>
+    <div class="cell ai-col"></div>
+    <div class="cell sf-col">
+      <div class="card sf-card">
+        <span class="card-emoji">💾</span>
+        <div class="card-title">Meeting note saved automatically</div>
+        <div class="card-desc">A Meeting Note record is created on the account — with the summary, action items, next steps, and timestamp. No typing required.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow-row">
+    <div class="arrow-cell user-col">↓</div>
+    <div class="arrow-cell ai-col"></div>
+    <div class="arrow-cell sf-col"></div>
+  </div>
+
+  <div class="row phase-last">
+    <div class="cell user-col">
+      <div class="card user-card">
+        <span class="card-emoji">✅</span>
+        <div class="card-title">Summary on the glasses</div>
+        <div class="card-desc">You see the summary, action items, and <em>"Saved to Salesforce ✓"</em> — then tap back to your accounts list.</div>
+      </div>
+    </div>
+    <div class="cell ai-col"></div>
+    <div class="cell sf-col"></div>
+  </div>
+
+</div><!-- /phase-block -->
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#3d9be9"></div> You &amp; your glasses</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8b5cf6"></div> AI (OpenAI Whisper + GPT-4o)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#22c55e"></div> Salesforce</div>
+</div>
+
+</body>
+</html>
