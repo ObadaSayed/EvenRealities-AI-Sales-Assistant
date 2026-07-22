@@ -1,0 +1,25 @@
+{
+  "package_id": "com.evenrealities.sfaccounts",
+  "edition": "202601",
+  "name": "Salesforce Accounts",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.10",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Fetches recent Salesforce Accounts through the proxy server.",
+      "whitelist": [
+        "https://sf-evenhub-proxy-4f011c764460.herokuapp.com",
+        "http://localhost:3000",
+        "http://192.168.1.232:3000"
+      ]
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Captures your spoken question on the glasses to search Salesforce by voice."
+    }
+  ],
+  "supported_languages": ["en"]
+}

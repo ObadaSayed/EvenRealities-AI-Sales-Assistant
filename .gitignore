@@ -16,5 +16,12 @@ app/dist/
 .DS_Store
 *.log
 
+# Packed app bundles and generated QR codes
+*.ehpk
+app/qr-glasses.png
+
+# Claude memory / plan files
+.claude/
+
 # Playwright scratch
 .playwright-cli/

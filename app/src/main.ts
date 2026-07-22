@@ -70,7 +70,10 @@ let meetingTranscriptTail = ''
 let meetingStartMs = 0
 let meetingAccountName = ''
 let flushTimer: ReturnType<typeof setInterval> | null = null
-const MEETING_FLUSH_MS = 20000
+let clockTimer: ReturnType<typeof setInterval> | null = null
+let meetingProcessing = false
+let flushInFlight = false
+const MEETING_FLUSH_MS = 5000
 
 // Voice capture state.
 let recording = false
@@ -185,8 +188,9 @@ function fmtElapsed(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-function renderMeeting(o: { accountName: string; elapsedMs: number; cues: string[]; transcriptTail: string }): string {
-  const head = `● REC ${fmtElapsed(o.elapsedMs)}   ${o.accountName}\n`
+function renderMeeting(o: { accountName: string; elapsedMs: number; cues: string[]; transcriptTail: string; isProcessing?: boolean }): string {
+  const recLabel = o.isProcessing ? '● REC ↻' : '● REC'
+  const head = `${recLabel} ${fmtElapsed(o.elapsedMs)}   ${o.accountName}\n`
   const cues = o.cues.length
     ? '\nLive cues\n' + o.cues.map((c) => ` • ${c}`).join('\n') + '\n'
     : '\nLive cues\n (listening…)\n'
@@ -282,6 +286,7 @@ async function startMeeting(account: Account) {
     pcmChunks = []
     await bridge.audioControl(true, AudioInputSource.Glasses)
     await renderMeetingScreen()
+    clockTimer = setInterval(() => { void renderMeetingScreen() }, 1000)
     flushTimer = setInterval(() => { void flushMeetingChunk() }, MEETING_FLUSH_MS)
   } catch (err) {
     await setText(`${account.name}\n\nCould not start meeting\n\n${(err as Error).message}\n\nTap: back`)
@@ -297,6 +302,7 @@ async function renderMeetingScreen() {
     elapsedMs: Date.now() - meetingStartMs,
     cues: meetingCues,
     transcriptTail: meetingTranscriptTail,
+    isProcessing: meetingProcessing,
   }))
 }
 
@@ -311,18 +317,24 @@ function snapshotPcm(): Uint8Array {
 
 async function flushMeetingChunk() {
   if (!meetingSessionId || view !== 'meeting') return
+  if (flushInFlight) return
   const merged = snapshotPcm()
+  if (merged.length === 0) return
+  flushInFlight = true
+  meetingProcessing = true
+  void renderMeetingScreen()
   try {
-    if (merged.length > 0) {
-      const audioBase64 = uint8ToBase64(merged)
-      const r = await postJson<MeetingChunk>(`/meeting/${meetingSessionId}/chunk`, { audioBase64 })
-      meetingCues = r.cues || meetingCues
-      if (r.transcript) meetingTranscriptTail = r.transcript.slice(-120)
-    }
+    const audioBase64 = uint8ToBase64(merged)
+    const r = await postJson<MeetingChunk>(`/meeting/${meetingSessionId}/chunk`, { audioBase64 })
+    meetingCues = r.cues || meetingCues
+    if (r.transcript) meetingTranscriptTail = r.transcript.slice(-120)
   } catch (err) {
     console.error('APP_MEETING_CHUNK_ERROR', err)
+  } finally {
+    flushInFlight = false
+    meetingProcessing = false
+    if (view === 'meeting') void renderMeetingScreen()
   }
-  if (view === 'meeting') await renderMeetingScreen()
 }
 
 async function endMeeting(save: boolean) {
@@ -332,7 +344,10 @@ async function endMeeting(save: boolean) {
   // Clear the session id immediately so a second tap during the async
   // summarize/save can't re-enter and fire a duplicate /end.
   meetingSessionId = null
-  if (flushTimer) { clearInterval(flushTimer); flushTimer = null }
+  if (flushTimer)  { clearInterval(flushTimer);  flushTimer = null }
+  if (clockTimer)  { clearInterval(clockTimer);  clockTimer = null }
+  meetingProcessing = false
+  flushInFlight = false
   recording = false
   try { await bridge.audioControl(false) } catch { /* ignore */ }
   busy = true
